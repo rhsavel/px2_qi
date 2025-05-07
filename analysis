@@ -1,0 +1,87 @@
+import pandas as pd
+import numpy as np
+from scipy import stats
+
+# Function to calculate weighted mean
+def weighted_mean(values, weights):
+    return np.sum(values * weights) / np.sum(weights)
+
+# Function to calculate weighted standard deviation
+def weighted_std(values, weights):
+    average = weighted_mean(values, weights)
+    variance = np.sum(weights * (values - average)**2) / np.sum(weights)
+    return np.sqrt(variance)
+
+# Function to calculate weighted t-test
+def weighted_ttest(mean1, std1, n1, mean2, std2, n2):
+    se = np.sqrt((std1**2 / n1) + (std2**2 / n2))
+    t_stat = (mean1 - mean2) / se
+    df = (se**4) / (((std1**2 / n1)**2) / (n1 - 1) + ((std2**2 / n2)**2) / (n2 - 1))
+    p_value = 2 * (1 - stats.t.cdf(np.abs(t_stat), df))
+    return t_stat, p_value
+
+# File names
+input_filename = 'weighted_ana_v02.xlsx'
+output_filename = 'weighted_analysis_output.xlsx'
+
+# Load input Excel file
+excel_file = pd.ExcelFile(input_filename)
+
+# Create a writer for output Excel file
+with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
+    for sheet_name in excel_file.sheet_names:
+        df = pd.read_excel(input_filename, sheet_name=sheet_name)
+
+        # Split into pre and post groups
+        pre = df[df['group'] == 'pre']
+        post = df[df['group'] == 'post']
+
+        pre_values = pre['value']
+        pre_weights = pre['weight']
+        post_values = post['value']
+        post_weights = post['weight']
+
+        # Weighted averages
+        pre_mean = weighted_mean(pre_values, pre_weights)
+        post_mean = weighted_mean(post_values, post_weights)
+
+        # Weighted standard deviations
+        pre_std = weighted_std(pre_values, pre_weights)
+        post_std = weighted_std(post_values, post_weights)
+
+        # Effective sample sizes
+        n_pre = np.sum(pre_weights)**2 / np.sum(pre_weights**2)
+        n_post = np.sum(post_weights)**2 / np.sum(post_weights**2)
+
+        # Weighted t-test
+        t_stat, p_value = weighted_ttest(pre_mean, pre_std, n_pre, post_mean, post_std, n_post)
+
+        # Create output DataFrame
+        output_df = pd.DataFrame({
+            'Group': ['Pre', 'Post'],
+            'Weighted Mean': [round(pre_mean, 2), round(post_mean, 2)],
+            'Weighted Std Dev': [round(pre_std, 2), round(post_std, 2)],
+            'Effective N': [round(n_pre, 1), round(n_post, 1)]
+        })
+
+        # Add p-value and significance
+        pvalue_row = pd.DataFrame({
+            'Group': ['P-value'],
+            'Weighted Mean': [round(p_value, 4)],
+            'Weighted Std Dev': [""],
+            'Effective N': [""]
+        })
+
+        sig_row = pd.DataFrame({
+            'Group': ['Statistically Significant?'],
+            'Weighted Mean': ['Yes' if p_value < 0.05 else 'No'],
+            'Weighted Std Dev': [""],
+            'Effective N': [""]
+        })
+
+        final_output = pd.concat([output_df, pvalue_row, sig_row], ignore_index=True)
+
+        # Write this sheet to output
+        final_output.to_excel(writer, sheet_name=sheet_name, index=False)
+
+print(f"Analysis complete. Results saved to '{output_filename}'.")
